@@ -36,11 +36,12 @@ class Conv4D(snt.Module):
 
         # We implement a padding that also allows for numerical padding.
         # The format is a bit specific and the input one for sonnet is even weirder
-        if iter(padding):
+        if not isinstance(padding, str):
             self.padding_value, inner_convs_padding = padding[0], padding[1:4]
             self.padding = 'float'
             inner_convs_padding = [lambda i: x for x in inner_convs_padding]
         else:
+            assert padding in {'valid', 'same'}
             self.padding = padding
             inner_convs_padding = padding
 
