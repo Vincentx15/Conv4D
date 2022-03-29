@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: UTF8 -*-
-import sys
 
 import numpy as np
+
 import sonnet as snt
-from sonnet.src.conv import Conv3D
+import sonnet.src.conv as snt_conv
 import tensorflow as tf
 
 
@@ -47,11 +47,11 @@ class Conv4D(snt.Module):
 
         l_k, d_k, h_k, w_k = self.kernel_shape
         l_s, d_s, h_s, w_s = self.stride
-        self.conv3dlist = [Conv3D(output_channels,
-                                  kernel_shape=(d_k, h_k, w_k),
-                                  stride=(d_s, h_s, w_s),
-                                  data_format='NDHWC',
-                                  padding=inner_convs_padding) for _ in range(l_k)]
+        self.conv3dlist = [snt_conv.Conv3D(output_channels,
+                                               kernel_shape=(d_k, h_k, w_k),
+                                               stride=(d_s, h_s, w_s),
+                                               data_format='NDHWC',
+                                               padding=inner_convs_padding) for _ in range(l_k)]
         self.data_format = data_format
 
     def __call__(self, inputs):
@@ -105,10 +105,6 @@ class Conv4D(snt.Module):
                 out_frame_padded = j_input - i_kernel + p_before + kernel_offset
                 out_frame_idx = out_frame_padded - (l_k - 1) // 2
 
-                # print()
-                # print('jinput', j_input, 'ikern', i_kernel, 'ker_offset', kernel_offset, 'padding', p_before,
-                #       f'padded index: {out_frame_padded} out_index/total_index {out_frame_idx}/{l_o - 1}')
-
                 # Only keep the ones with appropriate strides that fall into our image
                 if out_frame_idx % l_s:
                     continue
@@ -146,10 +142,40 @@ class Conv4D(snt.Module):
 
 if __name__ == '__main__':
     pass
+    import time
+
     decoy_input = tf.zeros(shape=(1, 5, 16, 17, 18, 1))
-    # decoy_input = np.zeros(shape=(1, 5, 16, 17, 18, 1))
     conv4d_1 = Conv4D(output_channels=8, kernel_shape=(4, 3, 3, 3), stride=(2, 1, 1, 1),
                       data_format='NLDHWC',
                       padding=((3, 0), (0, 0), (0, 0), (0, 0)))
-    out = conv4d_1(decoy_input)
+
+    n_iter = 20
+    # First let's look at the uncompiled performance. We will look at it again, because the GPU needs to heat.
+    t_0 = time.perf_counter()
+    for _ in range(n_iter):
+        out = conv4d_1(decoy_input)
+    print('Time with an uncompiled model', time.perf_counter() - t_0)
+
+
+    @tf.function
+    def my_forward_apply(x):
+        return conv4d_1(x)
+
+
+    # Now let us compile our function
+    t_0 = time.perf_counter()
+    out = my_forward_apply(x=decoy_input)
+    print('Time to compile', time.perf_counter() - t_0)
+
+    # The compiled timing should be better
+    t_0 = time.perf_counter()
+    for _ in range(n_iter):
+        out = my_forward_apply(x=decoy_input)
+    print('Time with a compiled model', time.perf_counter() - t_0)
+
+    # For a fairer comparison, we redo a run as this should be faster than the first one.
+    t_0 = time.perf_counter()
+    for _ in range(n_iter):
+        out = conv4d_1(decoy_input)
+    print('Second time with a uncompiled model', time.perf_counter() - t_0)
     print(out.shape)
